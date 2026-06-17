@@ -1,0 +1,192 @@
+// Modelo de dados COMPLETO — cobre todas as abas da planilha sem alterá-la.
+// Cada campo indica de qual coluna do Excel vem. A planilha permanece a fonte
+// de importação; o sistema lê, deriva o resto e nunca escreve no arquivo.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// De_Para / DEXPARA (Natureza -> hierarquia) + Tabela10 (centro de custos).
+model Classificacao {
+  natureza     String  @id
+  fc           String
+  grupo        String
+  subGrupo     String  @map("sub_grupo")
+  conta        String
+  centroCustos String? @map("centro_custos")
+
+  contasPagar   ContaPagar[]
+  contasReceber ContaReceber[]
+  lancamentos   Lancamento[]
+
+  @@map("classificacao")
+}
+
+/// De_Para / Tabela2 — classificação automática por descrição.
+model MapaDescricao {
+  id                    Int     @id @default(autoincrement())
+  tipo                  String?
+  descricaoMovimentacao String  @map("descricao_movimentacao")
+  natureza              String
+  centroCustos          String? @map("centro_custos")
+  observacao            String?
+  naturezaAnterior      String? @map("natureza_anterior")
+  centroCustosAnterior  String? @map("centro_custos_anterior")
+
+  @@map("mapa_descricao")
+}
+
+/// Banco — domínio fechado.
+model Banco {
+  id   Int    @id @default(autoincrement())
+  nome String @unique
+
+  @@map("banco")
+}
+
+/// CONTA A PAGAR — aba A_Pagar. NÚCLEO.
+/// status/condicao/dias/grupo/fc são DERIVADOS na leitura (não são colunas).
+model ContaPagar {
+  id             Int       @id @default(autoincrement())
+  tipificacao    String    @default("Saída")
+  banco          String?
+  movimentacao   String
+  valor          Decimal
+  meioPagamento  String?   @map("meio_pagamento") // A_Pagar.Tipo
+  detalhe        String? // A_Pagar.Descrição
+  competencia    DateTime?
+  vencimento     DateTime
+  dataProgramada DateTime? @map("data_programada") // A_Pagar.Programação
+  efetivacao     DateTime? // vazio => "A Pagar"
+  tabela         String // Oficial | Extra
+  obrigatorio    Boolean   @default(false)
+  selecionado    Boolean   @default(false) // A_Pagar.Observação
+  natureza       String
+  centroCustos   String?   @map("centro_custos")
+  seq            Int?
+
+  classificacao Classificacao? @relation(fields: [natureza], references: [natureza])
+
+  @@index([vencimento])
+  @@index([efetivacao])
+  @@index([dataProgramada])
+  @@map("conta_pagar")
+}
+
+/// CONTA A RECEBER — aba A_Receber.
+model ContaReceber {
+  id            Int       @id @default(autoincrement())
+  movimentacao  String
+  valor         Decimal
+  meioPagamento String?   @map("meio_pagamento")
+  detalhe       String?
+  centroCustos  String?   @map("centro_custos")
+  competencia   DateTime?
+  vencimento    DateTime
+  efetivacao    DateTime?
+  banco         String?
+  tabela        String?
+  natureza      String
+  selecionado   Boolean   @default(false)
+
+  classificacao Classificacao? @relation(fields: [natureza], references: [natureza])
+
+  @@map("conta_receber")
+}
+
+/// LANÇAMENTO — aba Lançamentos (movimentos realizados; base do fluxo).
+model Lancamento {
+  id                Int       @id @default(autoincrement())
+  tipificacao       String
+  clienteFornecedor String?   @map("cliente_fornecedor")
+  dataColeta        DateTime? @map("data_coleta")
+  numCheque         String?   @map("num_cheque")
+  nomeCheque        String?   @map("nome_cheque")
+  banco             String?
+  descricao         String
+  valor             Decimal
+  vencimento        DateTime?
+  liquidacao        DateTime?
+  observacao        String?
+  natureza          String
+  inadimplencia     String?
+
+  classificacao Classificacao? @relation(fields: [natureza], references: [natureza])
+
+  @@index([liquidacao])
+  @@map("lancamento")
+}
+
+/// CHEQUE — aba Cheques.
+model Cheque {
+  id          Int       @id @default(autoincrement())
+  tipificacao String
+  descricao   String
+  lancamento  String?
+  data        DateTime?
+  valor       Decimal
+
+  @@map("cheque")
+}
+
+/// CHEQUE DEVOLVIDO — aba Cheques Devolvidos.
+model ChequeDevolvido {
+  id        Int       @id @default(autoincrement())
+  banco     String?
+  descricao String
+  valor     Decimal
+  status    String?
+  data      DateTime?
+
+  @@map("cheque_devolvido")
+}
+
+/// MOVIMENTO DE CAIXA — aba Caixa (dinheiro em espécie).
+model MovimentoCaixa {
+  id           Int       @id @default(autoincrement())
+  entrada      String?
+  descricao    String
+  valor        Decimal
+  lancamento   String?
+  natureza     String?
+  centroCustos String?   @map("centro_custos")
+  data         DateTime?
+  tipificacao  String?
+
+  @@map("movimento_caixa")
+}
+
+/// SALDO DIÁRIO por banco — aba Saldo / "saldos".
+model SaldoBanco {
+  id    Int      @id @default(autoincrement())
+  data  DateTime
+  banco String
+  valor Decimal
+
+  @@unique([data, banco])
+  @@map("saldo_banco")
+}
+
+/// SALDO INICIAL por banco — aba Saldo / "SaldoInicial".
+model SaldoInicial {
+  id    Int      @id @default(autoincrement())
+  data  DateTime
+  banco String
+  valor Decimal
+
+  @@unique([data, banco])
+  @@map("saldo_inicial")
+}
+
+/// PARÂMETROS — ex.: "saldo_maximo_dia".
+model Parametro {
+  chave String @id
+  valor String
+
+  @@map("parametro")
+}
