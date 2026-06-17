@@ -9,6 +9,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 /// De_Para / DEXPARA (Natureza -> hierarquia) + Tabela10 (centro de custos).
