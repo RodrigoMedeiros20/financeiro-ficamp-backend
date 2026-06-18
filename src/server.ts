@@ -1,10 +1,12 @@
 import express from "express";
 import cors from "cors";
 import { contasPagarRouter } from "./routes/contasPagar";
+import { saldoRouter } from "./routes/saldo";
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN ?? "http://localhost:3000" }));
 app.use(express.json());
+app.use("/saldo", saldoRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use("/contas-pagar", contasPagarRouter);
