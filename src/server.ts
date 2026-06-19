@@ -9,15 +9,16 @@ const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN ?? "http://localhost:3000", credentials: true }));
 app.use(express.json());
 
-app.set("trust proxy", 1); // Render fica atrás de proxy; sem isso o cookie "secure" não funciona
+const emProducao = process.env.NODE_ENV === "production";
+app.set("trust proxy", 1);
 app.use(session({
   secret: process.env.SESSION_SECRET || "dev",
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: true,        // exige HTTPS (produção tem; localhost não)
-    sameSite: "none",    // permite o cookie entre domínios diferentes
+    secure: emProducao,                    // true em prod, false em local
+    sameSite: emProducao ? "none" : "lax", // none em prod, lax em local
   },
 }));
 

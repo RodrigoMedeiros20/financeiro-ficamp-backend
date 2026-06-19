@@ -12,8 +12,7 @@
 
 const ITEM = process.env.GRAPH_ITEM_ID!;
 const SHEET = process.env.GRAPH_SHEET || "A_Pagar";
-const DRIVE = process.env.GRAPH_DRIVE_ID!;
-const BASE = `https://graph.microsoft.com/v1.0/drives/${DRIVE}/items/${ITEM}/workbook`;
+const BASE = `https://graph.microsoft.com/v1.0/me/drive/items/${ITEM}/workbook`;
 
 // Cabeçalho na LINHA 7 (1-based); dados começam na 8.
 const HEADER_ROW = 7;
