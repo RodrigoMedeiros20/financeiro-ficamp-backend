@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import { authRouter } from "./graph/auth";
 import { contasPagarRouter } from "./routes/contasPagar";
 import { sharepointRouter } from "./graph/sharepointRoute";
@@ -9,6 +10,7 @@ const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN, credentials: true }));
 app.use(express.json());
 
+const PgStore = connectPgSimple(session);
 const emProducao = process.env.NODE_ENV === "production";
 app.set("trust proxy", 1);
 app.use(session({
@@ -17,9 +19,12 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: emProducao,                    // true em prod, false em local
-    sameSite: emProducao ? "none" : "lax", // none em prod, lax em local
+    secure: true,                    // true em prod, false em local
+    sameSite: "none", // none em prod, lax em local
   },
+  store: new PgStore({
+    conString: process.env.DATABASE_URL
+  })
 }));
 
 app.use("/api/auth", authRouter);
