@@ -1,12 +1,29 @@
 import express from "express";
 import cors from "cors";
+import session from "express-session";
+import { authRouter } from "./graph/auth";
 import { contasPagarRouter } from "./routes/contasPagar";
-import { saldoRouter } from "./routes/saldo";
+import { sharepointRouter } from "./graph/sharepointRoute";
 
 const app = express();
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN ?? "http://localhost:3000" }));
+app.use(cors({ origin: process.env.FRONTEND_ORIGIN, credentials: true }));
 app.use(express.json());
-app.use("/saldo", saldoRouter);
+
+const emProducao = process.env.NODE_ENV === "production";
+app.set("trust proxy", 1);
+app.use(session({
+  secret: process.env.SESSION_SECRET || "dev",
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: emProducao,                    // true em prod, false em local
+    sameSite: emProducao ? "none" : "lax", // none em prod, lax em local
+  },
+}));
+
+app.use("/api/auth", authRouter);
+app.use("/api/sharepoint", sharepointRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use("/contas-pagar", contasPagarRouter);
