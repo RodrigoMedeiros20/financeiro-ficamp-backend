@@ -1,30 +1,24 @@
 import express from "express";
 import cors from "cors";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
 import { authRouter } from "./graph/auth";
 import { contasPagarRouter } from "./routes/contasPagar";
 import { sharepointRouter } from "./graph/sharepointRoute";
 
 const app = express();
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN, credentials: true }));
+app.use(cors({ origin: process.env.FRONTEND_ORIGIN ?? "http://localhost:3000", credentials: true }));
 app.use(express.json());
 
-const PgStore = connectPgSimple(session);
-const emProducao = process.env.NODE_ENV === "production";
-app.set("trust proxy", 1);
+app.set("trust proxy", 1); // Render fica atrás de proxy; sem isso o cookie "secure" não funciona
 app.use(session({
   secret: process.env.SESSION_SECRET || "dev",
   resave: false,
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
-    secure: true,                    // true em prod, false em local
-    sameSite: "none", // none em prod, lax em local
+    secure: true,        // exige HTTPS (produção tem; localhost não)
+    sameSite: "none",    // permite o cookie entre domínios diferentes
   },
-  store: new PgStore({
-    conString: process.env.DATABASE_URL
-  })
 }));
 
 app.use("/api/auth", authRouter);
