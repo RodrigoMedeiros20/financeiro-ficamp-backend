@@ -191,3 +191,20 @@ model Parametro {
 
   @@map("parametro")
 }
+
+model PagamentoConfirmado {
+  id            Int      @id @default(autoincrement())
+  rowReal       Int      @map("row_real")
+  movimentacao  String
+  valor         Float
+  tabela        String
+  obrigatorio   Boolean  @default(false)
+  meioPagamento String?  @map("meio_pagamento")
+  detalhe       String?
+  vencimento    String?
+  programada    String?
+  confirmadoEm  DateTime @default(now()) @map("confirmado_em")
+ 
+  @@map("pagamentos_confirmados")
+  @@index([confirmadoEm])
+}
