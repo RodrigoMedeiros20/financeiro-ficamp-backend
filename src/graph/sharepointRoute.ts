@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { getAccessToken, exigeLogin } from "./auth";
-import { confirmarPagamentos } from "./planilha";
+import { confirmarPagamentos, desmarcarPagamentos } from "./planilha";
 import { obterContas, obterContasFresco, invalidar } from "./contasCache";
 import { prisma } from "../db/prisma";
 
@@ -63,6 +63,38 @@ sharepointRouter.post("/confirmar", exigeLogin, async (req, res) => {
     res.json(r);
   } catch (e: any) {
     console.error("ERRO /confirmar:", e);
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
+const alvoDesmarcar = z.object({
+  id: z.number().int().positive(),
+  rowReal: z.number().int().positive(),
+  movimentacao: z.string(),
+  valor: z.number(),
+  vencimento: z.string().nullable().optional(),
+});
+const corpoDesmarcar = z.object({ alvos: z.array(alvoDesmarcar).min(1) });
+
+sharepointRouter.post("/desmarcar", exigeLogin, async (req, res) => {
+  try {
+    const token = await getAccessToken(req);
+    if (!token) return res.status(401).json({ erro: "precisa_login" });
+    const { alvos } = corpoDesmarcar.parse(req.body);
+    const r = await desmarcarPagamentos(token, alvos);
+
+    if ((r.desmarcadas || 0) > 0) invalidar();
+
+    const desmarcadas = new Set<number>(r.linhas || []);
+    const ids = alvos.filter((a) => desmarcadas.has(a.rowReal)).map((a) => a.id);
+    if (ids.length) {
+      try { await prisma.pagamentoConfirmado.deleteMany({ where: { id: { in: ids } } }); }
+      catch (e) { console.error("Falha ao apagar histórico ao desmarcar:", e); }
+    }
+
+    res.json(r);
+  } catch (e: any) {
+    console.error("ERRO /desmarcar:", e);
     res.status(500).json({ error: e?.message || String(e) });
   }
 });

@@ -24,9 +24,15 @@ export type ContaLeitura = {
 
 export type Alvo = { rowReal: number; fp: string };
 
+export type AlvoDesmarcar = {
+    rowReal: number;
+    movimentacao: string;
+    valor: number;
+    vencimento?: string | null;
+};
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// fetch ao Graph com retry/backoff em erros temporários (429/503/500/504) e timeout por chamada.
 async function gfetch(token: string, url: string, init: RequestInit = {}, tentativas = 3): Promise<any> {
     let ultimoErro = "";
     for (let i = 0; i < tentativas; i++) {
@@ -65,10 +71,12 @@ async function gfetch(token: string, url: string, init: RequestInit = {}, tentat
     throw new Error(ultimoErro || "Graph: falha após várias tentativas");
 }
 
+// cabeçalho de sessão (se houver)
 function hSess(sessionId?: string): Record<string, string> {
     return sessionId ? { "workbook-session-id": sessionId } : {};
 }
 
+// lê UMA linha (colunas A:N) -> array de valores; null se vazia/fora do range
 async function lerLinha(token: string, rowReal: number, sessionId?: string): Promise<any[] | null> {
     const data = await gfetch(
         token,
@@ -78,6 +86,7 @@ async function lerLinha(token: string, rowReal: number, sessionId?: string): Pro
     return data?.values?.[0] ?? null;
 }
 
+// lê uma única célula (verificação pós-escrita)
 async function lerCelula(token: string, addr: string, sessionId?: string): Promise<any> {
     const data = await gfetch(
         token,
@@ -104,16 +113,18 @@ async function fecharSessao(token: string, sessionId: string) {
 }
 
 async function lerMatriz(token: string): Promise<{ valores: any[][]; linha0: number }> {
+    // 1) metadados (sem values)
     const meta = await gfetch(
         token,
         `${BASE}/worksheets('${SHEET}')/usedRange(valuesOnly=true)?$select=rowIndex,rowCount`
     );
     const ri = Number(meta?.rowIndex);
     const rc = Number(meta?.rowCount);
-    const linha0 = Number.isFinite(ri) ? ri + 1 : 1;
+    const linha0 = Number.isFinite(ri) ? ri + 1 : 1;      // 1-based: primeira linha usada
     if (!Number.isFinite(rc) || rc <= 0) return { valores: [], linha0 };
-    const ultima = linha0 + rc - 1;
+    const ultima = linha0 + rc - 1;                        // 1-based: última linha usada
 
+    // 2) lê só A:N das linhas usadas
     const data = await gfetch(
         token,
         `${BASE}/worksheets('${SHEET}')/range(address='A${linha0}:${ULTIMA_COL}${ultima}')?$select=values`
@@ -122,6 +133,7 @@ async function lerMatriz(token: string): Promise<{ valores: any[][]; linha0: num
     return { valores, linha0 };
 }
 
+// número de série/data do Excel ou string -> ISO yyyy-mm-dd
 function paraISO(v: any): string {
     if (v == null || v === "") return "";
     if (typeof v === "number") {
@@ -213,6 +225,58 @@ export async function confirmarPagamentos(token: string, alvos: Alvo[]) {
         ok: conflitos.length === 0 && falhas.length === 0,
         marcadas: confirmadas.length,
         linhas: confirmadas,
+        conflitos,
+        falhas,
+        usouSessao: !!sessionId,
+    };
+}
+
+export async function desmarcarPagamentos(token: string, alvos: AlvoDesmarcar[]) {
+    const desmarcadas: number[] = [];
+    const conflitos: { rowReal: number; motivo: string }[] = [];
+    const falhas: { rowReal: number; motivo: string }[] = [];
+
+    const sessionId = await abrirSessao(token);
+
+    try {
+        for (const alvo of alvos) {
+            try {
+                const linha = await lerLinha(token, alvo.rowReal, sessionId || undefined);
+                if (!linha) { conflitos.push({ rowReal: alvo.rowReal, motivo: "linha não encontrada" }); continue; }
+
+                // confere se a linha ainda é a mesma conta (pelos campos do banco)
+                const movOk = String(linha[COL.mov] ?? "").trim() === String(alvo.movimentacao ?? "").trim();
+                const valOk = Number(linha[COL.valor] ?? 0).toFixed(2) === Number(alvo.valor ?? 0).toFixed(2);
+                const vencOk = alvo.vencimento == null || alvo.vencimento === "" || paraISO(linha[COL.venc]) === alvo.vencimento;
+                if (!movOk || !valOk || !vencOk) {
+                    conflitos.push({ rowReal: alvo.rowReal, motivo: "a planilha mudou (recarregue e tente de novo)" });
+                    continue;
+                }
+
+                // já está desmarcada? então nada a fazer (idempotente)
+                if (linha[COL.obs] !== true) { desmarcadas.push(alvo.rowReal); continue; }
+
+                await gfetch(token, `${BASE}/worksheets('${SHEET}')/range(address='G${alvo.rowReal}')`, {
+                    method: "PATCH",
+                    headers: hSess(sessionId || undefined),
+                    body: JSON.stringify({ values: [[false]] }),
+                });
+
+                const v = await lerCelula(token, `G${alvo.rowReal}`, sessionId || undefined);
+                if (v === false) desmarcadas.push(alvo.rowReal);
+                else falhas.push({ rowReal: alvo.rowReal, motivo: "não persistiu (verificação falhou)" });
+            } catch (e: any) {
+                falhas.push({ rowReal: alvo.rowReal, motivo: e?.message || "erro ao gravar" });
+            }
+        }
+    } finally {
+        if (sessionId) await fecharSessao(token, sessionId);
+    }
+
+    return {
+        ok: conflitos.length === 0 && falhas.length === 0,
+        desmarcadas: desmarcadas.length,
+        linhas: desmarcadas,
         conflitos,
         falhas,
         usouSessao: !!sessionId,
